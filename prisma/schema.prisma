@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD_OUT
+  EXPIRED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  RESERVED
+  PICKED_UP
+  EXPIRED
+  CANCELLED
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  name               String
+  phone              String
+  passwordHash       String
+  role               Role
+  businessName       String?
+  noShows            Int       @default(0)
+  suspended          Boolean   @default(false)
+  verified           Boolean   @default(false)
+  emailVerifiedAt    DateTime?
+  verifyToken        String?   @unique
+  verifyTokenExpires DateTime?
+  rcNumber           String?   @unique
+  approvalStatus     String    @default("APPROVED")
+  rejectionReason    String?
+  reviewedAt         DateTime?
+  bankName           String?
+  bankCode           String?
+  accountNumber      String?
+  accountName        String?
+  subaccountCode     String?
+  createdAt          DateTime  @default(now())
+  listings           Listing[]
+  orders             Order[]
+}
+
+model Listing {
+  id            String        @id @default(cuid())
+  sellerId      String
+  seller        User          @relation(fields: [sellerId], references: [id])
+  title         String
+  description   String?
+  imageUrl      String?
+  category      String
+  city          String
+  area          String
+  address       String
+  originalPrice Int
+  price         Int
+  quantity      Int
+  quantityLeft  Int
+  saleEndsAt    DateTime
+  pickupBy      DateTime
+  status        ListingStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  orders        Order[]
+
+  @@index([status, saleEndsAt])
+  @@index([city, category])
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  orderNo      String?     @unique
+  listingId    String
+  listing      Listing     @relation(fields: [listingId], references: [id])
+  buyerId      String
+  buyer        User        @relation(fields: [buyerId], references: [id])
+  quantity     Int
+  totalPrice   Int
+  buyerFee     Int         @default(0)
+  amountPaid   Int         @default(0)
+  platformFee  Int         @default(0)
+  sellerAmount Int         @default(0)
+  pickupCode   String
+  status       OrderStatus @default(PENDING_PAYMENT)
+  paystackRef  String?     @unique
+  payUrl       String?
+  paidAt       DateTime?
+  refundDue    Boolean     @default(false)
+  refundedAt   DateTime?
+  createdAt    DateTime    @default(now())
+
+  @@index([buyerId])
+  @@index([listingId, status])
+  @@index([refundDue])
+}
