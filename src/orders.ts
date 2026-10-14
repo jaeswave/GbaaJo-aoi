@@ -13,7 +13,7 @@ export class ReserveDto {
 export class CompleteDto { @IsString() @Length(6, 6) code: string; }
 
 const ORDER_NO_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I so numbers are easy to read out
-const makeOrderNo = () => 'CN-' + Array.from(randomBytes(6), (b) => ORDER_NO_CHARS[b % ORDER_NO_CHARS.length]).join('');
+const makeOrderNo = () => 'GJ-' + Array.from(randomBytes(6), (b) => ORDER_NO_CHARS[b % ORDER_NO_CHARS.length]).join('');
 
 const listingInfo = { select: { title: true, category: true, imageUrl: true, address: true, area: true, city: true, pickupBy: true, saleEndsAt: true, seller: { select: { businessName: true, phone: true } } } };
 
@@ -24,7 +24,7 @@ export class OrdersService {
 
   /** Step 1: hold the food and create an unpaid order. Step 2: send the buyer to Paystack. */
   async reserve(buyerId: string, dto: ReserveDto) {
-    const reference = 'chop_' + randomBytes(10).toString('hex');
+    const reference = 'gj_' + randomBytes(10).toString('hex');
     const { order, subaccount, email } = await this.prisma.$transaction(async (tx) => {
       const buyer = await tx.user.findUnique({ where: { id: buyerId } });
       if (!buyer) throw new ForbiddenException('Account not found');
@@ -71,7 +71,7 @@ export class OrdersService {
     }
     try {
       const init = await this.paystack.initialize({
-        email, amountKobo: order.amountPaid * 100, feeKobo: (order.platformFee + order.buyerFee) * 100, // ChopNow keeps the seller commission + the buyer service fee
+        email, amountKobo: order.amountPaid * 100, feeKobo: (order.platformFee + order.buyerFee) * 100, // GbaanJo keeps the seller commission + the buyer service fee
         reference, subaccount, callbackUrl: frontendUrl() + '/pay/callback', metadata: { orderId: order.id, orderNo: order.orderNo },
       });
       await this.prisma.order.update({ where: { id: order.id }, data: { payUrl: init.authorization_url } });

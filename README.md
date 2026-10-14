@@ -1,4 +1,4 @@
-# ChopNow backend (NestJS + Prisma + Postgres)
+# GbaanJo backend (NestJS + Prisma + Postgres)
 
 ## Run locally
 1. Copy `.env.example` to `.env` and fill it in

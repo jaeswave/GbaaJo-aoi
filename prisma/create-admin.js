@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
-const [email, password, name = 'ChopNow Admin'] = process.argv.slice(2);
+const [email, password, name = 'GbaanJo Admin'] = process.argv.slice(2);
 
 if (!email || !password || password.length < 12) {
   console.log('Usage: node prisma/create-admin.js you@email.com "a-password-of-12-or-more-characters" "Your Name"');

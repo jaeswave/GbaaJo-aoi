@@ -16,13 +16,13 @@ export const RULES = {
   MAX_PER_ORDER: 5,           // units per reservation
   MAX_OPEN_ORDERS: 3,         // open reservations per buyer
   MAX_NO_SHOWS: 3,            // buyers with 3 no-shows can't reserve
-  PLATFORM_FEE_PERCENT: 10,   // ChopNow's commission on every sale
+  PLATFORM_FEE_PERCENT: 10,   // GbaanJo's commission on every sale
   MIN_FEE: 50,                // minimum commission per order, in naira
   HOLD_MINUTES: 10,           // how long food is held while the buyer pays
   BUYER_SERVICE_FEE: 100,     // flat fee added to every order, in naira (set 0 to turn it off)
 };
 
-// ChopNow's cut of an order total (naira). Never more than the order itself.
+// GbaanJo's cut of an order total (naira). Never more than the order itself.
 export const feeFor = (total: number) => Math.min(total, Math.max(RULES.MIN_FEE, Math.round((total * RULES.PLATFORM_FEE_PERCENT) / 100)));
 
 export const frontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();

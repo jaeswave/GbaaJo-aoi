@@ -18,7 +18,7 @@ export class UploadsController {
     const seller = await this.prisma.user.findUnique({ where: { id: u.sub }, select: { approvalStatus: true, emailVerifiedAt: true } });
     if (seller.approvalStatus !== 'APPROVED' || !seller.emailVerifiedAt) throw new ForbiddenException('You can upload photos once your application is approved');
     const timestamp = Math.floor(Date.now() / 1000);
-    const folder = 'chopnow/listings';
+    const folder = 'gbaanjo/listings';
     const signature = createHash('sha1').update(`folder=${folder}&timestamp=${timestamp}${secret}`).digest('hex');
     return { cloudName, apiKey, timestamp, folder, signature };
   }
