@@ -21,11 +21,18 @@ model User {
   businessName    String?
   role            String    @default("BUYER") // BUYER | SELLER | ADMIN
 
-  // Fields required by listings.ts / main.ts
+  // Auth / seller onboarding
   emailVerifiedAt DateTime?
   approvalStatus  String    @default("PENDING") // PENDING | APPROVED | REJECTED
   suspended       Boolean   @default(false)
+
+  // Payout account (payments.ts)
+  bankName        String?
+  accountName     String?
   accountNumber   String?
+
+  // Behaviour tracking (orders.ts)
+  noShows         Int       @default(0)
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -48,13 +55,13 @@ model Listing {
   description  String?
   price        Float
   quantity     Int       @default(0)
-  quantityLeft Int       @default(0)   // required by listings.ts:52
-  imageUrl     String?                 // required by listings.ts:52
+  quantityLeft Int       @default(0)
+  imageUrl     String?
   address      String?
   area         String?
   city         String?
   pickupBy     DateTime?
-  saleEndsAt   DateTime?               // required by listings.ts:52,69
+  saleEndsAt   DateTime?
   status       String    @default("ACTIVE") // ACTIVE | SOLD_OUT | EXPIRED
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -71,31 +78,35 @@ model Listing {
 // Order
 // ─────────────────────────────────────────────
 model Order {
-  id           String    @id @default(cuid())
-  orderNo      String    @unique
-  listingId    String
-  buyerId      String
-  quantity     Int
-  totalPrice   Float
-  buyerFee     Float
-  amountPaid   Float
-  platformFee  Float
-  sellerAmount Float
-  pickupCode   String
+  id              String    @id @default(cuid())
+  orderNo         String    @unique
+  listingId       String
+  buyerId         String
+  quantity        Int
+  totalPrice      Float
+  buyerFee        Float
+  amountPaid      Float
+  platformFee     Float
+  sellerAmount    Float
+  pickupCode      String
 
-  // Required by orders.ts
-  paymentRef   String    @unique
-  opayOrderNo  String?
-  payUrl       String?
-  paidAt       DateTime?
-  paidOutAt    DateTime?
+  // Payment (orders.ts)
+  paymentRef      String    @unique
+  opayOrderNo     String?
+  payUrl          String?
+  paidAt          DateTime?
+  paidOutAt       DateTime?
+  refundDue       Boolean   @default(false)   // orders.ts:151,180,213
 
-  status       String    @default("PENDING") // PENDING | PAID | CANCELLED | COMPLETED
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  // Reminders (expiry.ts)
+  reminderSentAt  DateTime?                   // expiry.ts:89
 
-  listing      Listing   @relation(fields: [listingId], references: [id])  // required by expiry.ts:91 / orders.ts:118
-  buyer        User      @relation(fields: [buyerId], references: [id])
+  status          String    @default("PENDING") // PENDING | RESERVED | PAID | CANCELLED | COMPLETED
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  listing         Listing   @relation(fields: [listingId], references: [id])
+  buyer           User      @relation(fields: [buyerId], references: [id])
 
   @@index([buyerId])
   @@index([listingId])
@@ -103,7 +114,7 @@ model Order {
 }
 
 // ─────────────────────────────────────────────
-// Feedback  (required by feedback.ts:30)
+// Feedback
 // ─────────────────────────────────────────────
 model Feedback {
   id        String   @id @default(cuid())
@@ -123,7 +134,7 @@ model Feedback {
 }
 
 // ─────────────────────────────────────────────
-// Waitlist  (required by feedback.ts:37)
+// Waitlist
 // ─────────────────────────────────────────────
 model Waitlist {
   id        String   @id @default(cuid())
