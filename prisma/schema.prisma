@@ -13,21 +13,29 @@ datasource db {
 // User
 // ─────────────────────────────────────────────
 model User {
-  id            String    @id @default(cuid())
-  name          String
-  email         String    @unique
-  passwordHash  String?
-  phone         String?
-  businessName  String?
-  role          String    @default("BUYER") // BUYER | SELLER | ADMIN
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  passwordHash    String?
+  phone           String?
+  businessName    String?
+  role            String    @default("BUYER") // BUYER | SELLER | ADMIN
 
-  listings      Listing[]
-  orders        Order[]
-  feedback      Feedback[]
+  // Fields required by listings.ts / main.ts
+  emailVerifiedAt DateTime?
+  approvalStatus  String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  suspended       Boolean   @default(false)
+  accountNumber   String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  listings        Listing[]
+  orders          Order[]
+  feedback        Feedback[]
 
   @@index([email])
+  @@index([approvalStatus])
 }
 
 // ─────────────────────────────────────────────
@@ -40,10 +48,13 @@ model Listing {
   description  String?
   price        Float
   quantity     Int       @default(0)
+  quantityLeft Int       @default(0)   // required by listings.ts:52
+  imageUrl     String?                 // required by listings.ts:52
   address      String?
   area         String?
   city         String?
   pickupBy     DateTime?
+  saleEndsAt   DateTime?               // required by listings.ts:52,69
   status       String    @default("ACTIVE") // ACTIVE | SOLD_OUT | EXPIRED
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -53,6 +64,7 @@ model Listing {
 
   @@index([sellerId])
   @@index([city])
+  @@index([saleEndsAt])
 }
 
 // ─────────────────────────────────────────────
@@ -70,16 +82,19 @@ model Order {
   platformFee  Float
   sellerAmount Float
   pickupCode   String
+
+  // Required by orders.ts
   paymentRef   String    @unique
   opayOrderNo  String?
   payUrl       String?
   paidAt       DateTime?
   paidOutAt    DateTime?
+
   status       String    @default("PENDING") // PENDING | PAID | CANCELLED | COMPLETED
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  listing      Listing   @relation(fields: [listingId], references: [id])
+  listing      Listing   @relation(fields: [listingId], references: [id])  // required by expiry.ts:91 / orders.ts:118
   buyer        User      @relation(fields: [buyerId], references: [id])
 
   @@index([buyerId])
@@ -88,7 +103,7 @@ model Order {
 }
 
 // ─────────────────────────────────────────────
-// Feedback
+// Feedback  (required by feedback.ts:30)
 // ─────────────────────────────────────────────
 model Feedback {
   id        String   @id @default(cuid())
@@ -108,7 +123,7 @@ model Feedback {
 }
 
 // ─────────────────────────────────────────────
-// Waitlist
+// Waitlist  (required by feedback.ts:37)
 // ─────────────────────────────────────────────
 model Waitlist {
   id        String   @id @default(cuid())
