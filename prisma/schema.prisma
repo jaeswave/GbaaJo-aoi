@@ -1,14 +1,14 @@
-// GbaanJo database schema (PostgreSQL on Supabase).
-// Reconstructed from the code. Compare with your own prisma/schema.prisma before using it.
+// GbaanJo database schema (PostgreSQL on Supabase)
 
 generator client {
   provider = "prisma-client-js"
+  // Prisma 7 requires a custom output path
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  // In Prisma 7, connection URLs are configured in prisma.config.ts
 }
 
 enum Role {
@@ -59,10 +59,12 @@ model User {
   verifyTokenExpires DateTime?
   resetToken         String?
   resetTokenExpires  DateTime?
-  // Seller payout details. OPay has no split payments, so GbaanJo collects the money and pays sellers by bank transfer.
+
+  // Seller payout details
   bankName           String?
   accountName        String?
   accountNumber      String?
+
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -78,7 +80,7 @@ model User {
 model Listing {
   id            String        @id @default(cuid())
   sellerId      String
-  seller        User          @relation(fields: [sellerId], references: [id])
+  seller        User          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
   title         String
   description   String?
   imageUrl      String?
@@ -106,25 +108,30 @@ model Order {
   id             String      @id @default(cuid())
   orderNo        String      @unique
   listingId      String
-  listing        Listing     @relation(fields: [listingId], references: [id])
+  listing        Listing     @relation(fields: [listingId], references: [id], onDelete: Restrict)
   buyerId        String
-  buyer          User        @relation(fields: [buyerId], references: [id])
+  buyer          User        @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+
   quantity       Int
-  totalPrice     Int // food total, naira
+  totalPrice     Int         // food total, naira
   buyerFee       Int         @default(0) // service fee charged to the buyer, naira
   amountPaid     Int         @default(0) // what the buyer pays in total, naira
-  platformFee    Int // commission kept from the seller's share, naira
-  sellerAmount   Int // what GbaanJo owes the seller for this order, naira
+  platformFee    Int         // commission kept from the seller's share, naira
+  sellerAmount   Int         // what GbaanJo owes the seller for this order, naira
+
   pickupCode     String
   status         OrderStatus @default(PENDING_PAYMENT)
+
   paymentRef     String      @unique // our reference, sent to OPay as "reference"
-  opayOrderNo    String? // OPay's own order number
-  payUrl         String? // OPay cashier link, so the buyer can resume paying
+  opayOrderNo    String?     // OPay's own order number
+  payUrl         String?     // OPay cashier link, so the buyer can resume paying
+
   paidAt         DateTime?
   refundDue      Boolean     @default(false)
   refundedAt     DateTime?
-  paidOutAt      DateTime? // when GbaanJo transferred the seller's share
+  paidOutAt      DateTime?   // when GbaanJo transferred the seller's share
   reminderSentAt DateTime?
+
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
@@ -134,11 +141,10 @@ model Order {
   @@index([pickupCode])
 }
 
-// Pilot feedback from buyers and sellers (also works for visitors who are not logged in)
 model Feedback {
   id        String   @id @default(cuid())
   userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   name      String?
   email     String?
   category  String   @default("GENERAL") // BUG, IDEA, PRAISE, GENERAL
@@ -151,7 +157,6 @@ model Feedback {
   @@index([createdAt])
 }
 
-// People outside Lagos who want to know when we launch in their city
 model Waitlist {
   id        String   @id @default(cuid())
   email     String   @unique
