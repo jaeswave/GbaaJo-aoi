@@ -1,0 +1,33 @@
+# Render Blueprint. Optional: you can also click the same settings in the Render dashboard.
+services:
+  - type: web
+    name: gbaanjo-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    # If your backend lives in a sub-folder of the repo, uncomment and set it:
+    # rootDir: backend
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
+    startCommand: node dist/main.js
+    healthCheckPath: /
+    envVars:
+      - { key: NODE_VERSION, value: "22" }
+      - { key: NODE_ENV, value: production }
+      - { key: ACTIVE_CITIES, value: Lagos }
+      - { key: OPAY_ENV, value: sandbox }
+      # Secrets: fill these in on the Render dashboard (sync: false keeps them out of Git)
+      - { key: DATABASE_URL, sync: false }
+      - { key: DIRECT_URL, sync: false }
+      - { key: JWT_SECRET, sync: false }
+      - { key: FRONTEND_URL, sync: false }
+      - { key: OPAY_MERCHANT_ID, sync: false }
+      - { key: OPAY_PUBLIC_KEY, sync: false }
+      - { key: OPAY_SECRET_KEY, sync: false }
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: MAIL_FROM, sync: false }
+      - { key: ADMIN_ALERT_EMAIL, sync: false }
+      - { key: CLOUDINARY_CLOUD_NAME, sync: false }
+      - { key: CLOUDINARY_API_KEY, sync: false }
+      - { key: CLOUDINARY_API_SECRET, sync: false }
+      - { key: ADMIN_EMAIL, sync: false }
+      - { key: ADMIN_PASSWORD, sync: false }

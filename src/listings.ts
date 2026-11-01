@@ -1,14 +1,15 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 import { PrismaService } from './prisma.service';
-import { AuthGuard, CATEGORIES, CITIES, CurrentUser, Roles, RULES, cancelOrders } from './common';
+import { MailerService } from './mailer';
+import { AuthGuard, CATEGORIES, CITIES, COMING_SOON, CurrentUser, Roles, RULES, cancelOrders } from './common';
 
 export class CreateListingDto {
   @IsString() @Length(3, 80) title: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsString() @MaxLength(300) imageUrl?: string;
   @IsIn(CATEGORIES) category: string;
-  @IsIn(CITIES) city: string;
+  @IsIn(CITIES, { message: `GbaanJo is only live in ${CITIES.join(', ')} for now` }) city: string;
   @IsString() @Length(2, 60) area: string;
   @IsString() @Length(5, 200) address: string;
   @IsInt() @Min(100) originalPrice: number;
@@ -27,13 +28,13 @@ const publicSelect = {
 
 @Injectable()
 export class ListingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private mail: MailerService) {}
 
   async create(sellerId: string, dto: CreateListingDto) {
-    const seller = await this.prisma.user.findUnique({ where: { id: sellerId }, select: { subaccountCode: true, emailVerifiedAt: true, approvalStatus: true } });
+    const seller = await this.prisma.user.findUnique({ where: { id: sellerId }, select: { accountNumber: true, emailVerifiedAt: true, approvalStatus: true } });
     if (!seller?.emailVerifiedAt) throw new ForbiddenException('Please verify your email first. Check your inbox for the link.');
     if (seller.approvalStatus !== 'APPROVED') throw new ForbiddenException('Your seller application is still under review.');
-    if (!seller.subaccountCode) throw new BadRequestException('Set up your payout account first (My shop, then Payouts) so you can get paid.');
+    if (!seller.accountNumber) throw new BadRequestException('Set up your payout account first (My shop, then Payouts) so you can get paid.');
     if (dto.imageUrl) {
       const cloud = process.env.CLOUDINARY_CLOUD_NAME;
       if (!cloud || !dto.imageUrl.startsWith(`https://res.cloudinary.com/${cloud}/`)) throw new BadRequestException('That photo is not valid. Please upload it again.');
@@ -59,6 +60,7 @@ export class ListingsService {
     return this.prisma.listing.findMany({
       where: {
         status: 'ACTIVE', quantityLeft: { gt: 0 }, saleEndsAt: { gt: new Date() },
+        city: { in: CITIES }, // only cities we are live in
         seller: { approvalStatus: 'APPROVED', suspended: false },
         ...(CITIES.includes(q.city) ? { city: q.city } : {}),
         ...(CATEGORIES.includes(q.category) ? { category: q.category } : {}),
@@ -78,21 +80,26 @@ export class ListingsService {
     return this.prisma.listing.findMany({ where: { sellerId }, orderBy: { createdAt: 'desc' }, take: 100, select: { ...publicSelect, address: true } });
   }
 
-  cancel(sellerId: string, id: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const l = await tx.listing.findUnique({ where: { id } });
+  async cancel(sellerId: string, id: string) {
+    const { listing, affected, seller } = await this.prisma.$transaction(async (tx) => {
+      const l = await tx.listing.findUnique({ where: { id }, include: { seller: { select: { email: true, businessName: true, name: true } } } });
       if (!l) throw new NotFoundException('Listing not found');
       if (l.sellerId !== sellerId) throw new ForbiddenException('Not your listing');
-      await cancelOrders(tx, { listingId: id });
-      return tx.listing.update({ where: { id }, data: { status: 'CANCELLED' }, select: publicSelect });
+      const affected = await cancelOrders(tx, { listingId: id });
+      const listing = await tx.listing.update({ where: { id }, data: { status: 'CANCELLED' }, select: publicSelect });
+      return { listing, affected, seller: l.seller };
     });
+    // Tell every buyer who had an order, so nobody turns up for food that is no longer there
+    for (const o of affected) void this.mail.orderCancelledBuyer({ orderNo: o.orderNo, title: o.title, buyerName: o.buyerName, buyerEmail: o.buyerEmail, amountPaid: o.amountPaid }, o.refund, 'The seller cancelled this listing.');
+    if (affected.some((o) => o.refund)) void this.mail.adminAlert('Refunds to process', `${affected.filter((o) => o.refund).length} paid order(s) need a refund because ${seller.businessName || seller.name} cancelled a listing.`);
+    return listing;
   }
 }
 
 @Controller('listings')
 export class ListingsController {
   constructor(private svc: ListingsService) {}
-  @Get('meta') meta() { return { categories: CATEGORIES, cities: CITIES, rules: RULES }; }
+  @Get('meta') meta() { return { categories: CATEGORIES, cities: CITIES, comingSoon: COMING_SOON, rules: RULES, paymentProvider: 'opay', currency: 'NGN', locale: 'en-NG' }; }
   @Get() list(@Query() q: any) { return this.svc.list(q); }
   @UseGuards(AuthGuard) @Roles('SELLER') @Get('mine/all') mine(@CurrentUser() u: any) { return this.svc.mine(u.sub); }
   @Get(':id') one(@Param('id') id: string) { return this.svc.one(id); }

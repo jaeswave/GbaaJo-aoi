@@ -1,16 +1,26 @@
+// GbaanJo database schema (PostgreSQL on Supabase).
+// Reconstructed from the code. Compare with your own prisma/schema.prisma before using it.
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
   BUYER
   SELLER
   ADMIN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum ListingStatus {
@@ -29,31 +39,40 @@ enum OrderStatus {
 }
 
 model User {
-  id                 String    @id @default(cuid())
-  email              String    @unique
+  id                 String         @id @default(cuid())
+  email              String         @unique
+  passwordHash       String
   name               String
   phone              String
-  passwordHash       String
-  role               Role
+  role               Role           @default(BUYER)
+  city               String         @default("Lagos")
   businessName       String?
-  noShows            Int       @default(0)
-  suspended          Boolean   @default(false)
-  verified           Boolean   @default(false)
-  emailVerifiedAt    DateTime?
-  verifyToken        String?   @unique
-  verifyTokenExpires DateTime?
-  rcNumber           String?   @unique
-  approvalStatus     String    @default("APPROVED")
+  rcNumber           String?        @unique
+  approvalStatus     ApprovalStatus @default(APPROVED)
   rejectionReason    String?
   reviewedAt         DateTime?
+  verified           Boolean        @default(false)
+  suspended          Boolean        @default(false)
+  noShows            Int            @default(0)
+  emailVerifiedAt    DateTime?
+  verifyToken        String?
+  verifyTokenExpires DateTime?
+  resetToken         String?
+  resetTokenExpires  DateTime?
+  // Seller payout details. OPay has no split payments, so GbaanJo collects the money and pays sellers by bank transfer.
   bankName           String?
-  bankCode           String?
-  accountNumber      String?
   accountName        String?
-  subaccountCode     String?
-  createdAt          DateTime  @default(now())
-  listings           Listing[]
-  orders             Order[]
+  accountNumber      String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  listings Listing[]
+  orders   Order[]
+  feedback Feedback[]
+
+  @@index([role, approvalStatus])
+  @@index([verifyToken])
+  @@index([resetToken])
 }
 
 model Listing {
@@ -75,35 +94,67 @@ model Listing {
   pickupBy      DateTime
   status        ListingStatus @default(ACTIVE)
   createdAt     DateTime      @default(now())
-  orders        Order[]
+
+  orders Order[]
 
   @@index([status, saleEndsAt])
-  @@index([city, category])
+  @@index([city, status])
+  @@index([sellerId, status])
 }
 
 model Order {
-  id           String      @id @default(cuid())
-  orderNo      String?     @unique
-  listingId    String
-  listing      Listing     @relation(fields: [listingId], references: [id])
-  buyerId      String
-  buyer        User        @relation(fields: [buyerId], references: [id])
-  quantity     Int
-  totalPrice   Int
-  buyerFee     Int         @default(0)
-  amountPaid   Int         @default(0)
-  platformFee  Int         @default(0)
-  sellerAmount Int         @default(0)
-  pickupCode   String
-  status       OrderStatus @default(PENDING_PAYMENT)
-  paystackRef  String?     @unique
-  payUrl       String?
-  paidAt       DateTime?
-  refundDue    Boolean     @default(false)
-  refundedAt   DateTime?
-  createdAt    DateTime    @default(now())
+  id             String      @id @default(cuid())
+  orderNo        String      @unique
+  listingId      String
+  listing        Listing     @relation(fields: [listingId], references: [id])
+  buyerId        String
+  buyer          User        @relation(fields: [buyerId], references: [id])
+  quantity       Int
+  totalPrice     Int // food total, naira
+  buyerFee       Int         @default(0) // service fee charged to the buyer, naira
+  amountPaid     Int         @default(0) // what the buyer pays in total, naira
+  platformFee    Int // commission kept from the seller's share, naira
+  sellerAmount   Int // what GbaanJo owes the seller for this order, naira
+  pickupCode     String
+  status         OrderStatus @default(PENDING_PAYMENT)
+  paymentRef     String      @unique // our reference, sent to OPay as "reference"
+  opayOrderNo    String? // OPay's own order number
+  payUrl         String? // OPay cashier link, so the buyer can resume paying
+  paidAt         DateTime?
+  refundDue      Boolean     @default(false)
+  refundedAt     DateTime?
+  paidOutAt      DateTime? // when GbaanJo transferred the seller's share
+  reminderSentAt DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-  @@index([buyerId])
+  @@index([buyerId, status])
   @@index([listingId, status])
-  @@index([refundDue])
+  @@index([status, createdAt])
+  @@index([pickupCode])
+}
+
+// Pilot feedback from buyers and sellers (also works for visitors who are not logged in)
+model Feedback {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  name      String?
+  email     String?
+  category  String   @default("GENERAL") // BUG, IDEA, PRAISE, GENERAL
+  rating    Int?
+  message   String
+  page      String?
+  status    String   @default("NEW") // NEW, SEEN, DONE
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// People outside Lagos who want to know when we launch in their city
+model Waitlist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  city      String
+  createdAt DateTime @default(now())
 }
