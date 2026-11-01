@@ -1,9 +1,7 @@
-// GbaanJo database schema (PostgreSQL on Supabase)
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
-  // Prisma 7 requires a custom output path
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -11,155 +9,110 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  BUYER
-  SELLER
-  ADMIN
-}
-
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum ListingStatus {
-  ACTIVE
-  SOLD_OUT
-  EXPIRED
-  CANCELLED
-}
-
-enum OrderStatus {
-  PENDING_PAYMENT
-  RESERVED
-  PICKED_UP
-  EXPIRED
-  CANCELLED
-}
-
+// ─────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────
 model User {
-  id                 String         @id @default(cuid())
-  email              String         @unique
-  passwordHash       String
-  name               String
-  phone              String
-  role               Role           @default(BUYER)
-  city               String         @default("Lagos")
-  businessName       String?
-  rcNumber           String?        @unique
-  approvalStatus     ApprovalStatus @default(APPROVED)
-  rejectionReason    String?
-  reviewedAt         DateTime?
-  verified           Boolean        @default(false)
-  suspended          Boolean        @default(false)
-  noShows            Int            @default(0)
-  emailVerifiedAt    DateTime?
-  verifyToken        String?
-  verifyTokenExpires DateTime?
-  resetToken         String?
-  resetTokenExpires  DateTime?
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  passwordHash  String?
+  phone         String?
+  businessName  String?
+  role          String    @default("BUYER") // BUYER | SELLER | ADMIN
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  // Seller payout details
-  bankName           String?
-  accountName        String?
-  accountNumber      String?
+  listings      Listing[]
+  orders        Order[]
+  feedback      Feedback[]
 
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-
-  listings Listing[]
-  orders   Order[]
-  feedback Feedback[]
-
-  @@index([role, approvalStatus])
-  @@index([verifyToken])
-  @@index([resetToken])
+  @@index([email])
 }
 
+// ─────────────────────────────────────────────
+// Listing
+// ─────────────────────────────────────────────
 model Listing {
-  id            String        @id @default(cuid())
-  sellerId      String
-  seller        User          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
-  title         String
-  description   String?
-  imageUrl      String?
-  category      String
-  city          String
-  area          String
-  address       String
-  originalPrice Int
-  price         Int
-  quantity      Int
-  quantityLeft  Int
-  saleEndsAt    DateTime
-  pickupBy      DateTime
-  status        ListingStatus @default(ACTIVE)
-  createdAt     DateTime      @default(now())
+  id           String    @id @default(cuid())
+  sellerId     String
+  title        String
+  description  String?
+  price        Float
+  quantity     Int       @default(0)
+  address      String?
+  area         String?
+  city         String?
+  pickupBy     DateTime?
+  status       String    @default("ACTIVE") // ACTIVE | SOLD_OUT | EXPIRED
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  orders Order[]
+  seller       User      @relation(fields: [sellerId], references: [id])
+  orders       Order[]
 
-  @@index([status, saleEndsAt])
-  @@index([city, status])
-  @@index([sellerId, status])
+  @@index([sellerId])
+  @@index([city])
 }
 
+// ─────────────────────────────────────────────
+// Order
+// ─────────────────────────────────────────────
 model Order {
-  id             String      @id @default(cuid())
-  orderNo        String      @unique
-  listingId      String
-  listing        Listing     @relation(fields: [listingId], references: [id], onDelete: Restrict)
-  buyerId        String
-  buyer          User        @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  id           String    @id @default(cuid())
+  orderNo      String    @unique
+  listingId    String
+  buyerId      String
+  quantity     Int
+  totalPrice   Float
+  buyerFee     Float
+  amountPaid   Float
+  platformFee  Float
+  sellerAmount Float
+  pickupCode   String
+  paymentRef   String    @unique
+  opayOrderNo  String?
+  payUrl       String?
+  paidAt       DateTime?
+  paidOutAt    DateTime?
+  status       String    @default("PENDING") // PENDING | PAID | CANCELLED | COMPLETED
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  quantity       Int
-  totalPrice     Int         // food total, naira
-  buyerFee       Int         @default(0) // service fee charged to the buyer, naira
-  amountPaid     Int         @default(0) // what the buyer pays in total, naira
-  platformFee    Int         // commission kept from the seller's share, naira
-  sellerAmount   Int         // what GbaanJo owes the seller for this order, naira
+  listing      Listing   @relation(fields: [listingId], references: [id])
+  buyer        User      @relation(fields: [buyerId], references: [id])
 
-  pickupCode     String
-  status         OrderStatus @default(PENDING_PAYMENT)
-
-  paymentRef     String      @unique // our reference, sent to OPay as "reference"
-  opayOrderNo    String?     // OPay's own order number
-  payUrl         String?     // OPay cashier link, so the buyer can resume paying
-
-  paidAt         DateTime?
-  refundDue      Boolean     @default(false)
-  refundedAt     DateTime?
-  paidOutAt      DateTime?   // when GbaanJo transferred the seller's share
-  reminderSentAt DateTime?
-
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-
-  @@index([buyerId, status])
-  @@index([listingId, status])
-  @@index([status, createdAt])
-  @@index([pickupCode])
+  @@index([buyerId])
+  @@index([listingId])
+  @@index([status])
 }
 
+// ─────────────────────────────────────────────
+// Feedback
+// ─────────────────────────────────────────────
 model Feedback {
   id        String   @id @default(cuid())
   userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name      String?
-  email     String?
-  category  String   @default("GENERAL") // BUG, IDEA, PRAISE, GENERAL
+  category  String   @default("GENERAL")
   rating    Int?
   message   String
+  name      String?
+  email     String?
   page      String?
-  status    String   @default("NEW") // NEW, SEEN, DONE
   createdAt DateTime @default(now())
 
-  @@index([createdAt])
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([email])
 }
 
+// ─────────────────────────────────────────────
+// Waitlist
+// ─────────────────────────────────────────────
 model Waitlist {
   id        String   @id @default(cuid())
   email     String   @unique
-  city      String
+  city      String?
   createdAt DateTime @default(now())
 }
