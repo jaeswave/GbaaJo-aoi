@@ -13,6 +13,7 @@ import { OpayService, PayoutsController } from './payments';
 import { UploadsController } from './uploads';
 import { AdminController, AdminService } from './admin';
 import { FeedbackController } from './feedback';
+import { InsightsController, InsightsService } from "./insights";
 import { ExpiryService } from './expiry';
 
 // "/" answers instantly (for the free uptime pinger). "/health" also checks the database, which keeps a free Supabase project from pausing.
@@ -31,9 +32,35 @@ class HealthController {
     ConfigModule.forRoot(),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 200 }]),
-    JwtModule.register({ global: true, secret: process.env.JWT_SECRET, signOptions: { expiresIn: '7d' } }),
+    JwtModule.register({
+      global: true,
+      secret: process.env.JWT_SECRET,
+      signOptions: { expiresIn: "7d" },
+    }),
   ],
-  controllers: [HealthController, AuthController, ListingsController, OrdersController, PaymentsController, PayoutsController, UploadsController, AdminController, FeedbackController],
-  providers: [PrismaService, MailerService, OpayService, AuthService, ListingsService, OrdersService, AdminService, ExpiryService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  controllers: [
+    HealthController,
+    AuthController,
+    ListingsController,
+    OrdersController,
+    PaymentsController,
+    PayoutsController,
+    UploadsController,
+    AdminController,
+    FeedbackController,
+    InsightsController,
+  ],
+  providers: [
+    PrismaService,
+    MailerService,
+    OpayService,
+    AuthService,
+    ListingsService,
+    OrdersService,
+    AdminService,
+    ExpiryService,
+    InsightsService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

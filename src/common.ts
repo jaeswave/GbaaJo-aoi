@@ -97,9 +97,15 @@ export class AuthGuard implements CanActivate {
     const token = (req.headers.authorization || '').replace('Bearer ', '');
     try { req.user = this.jwt.verify(token); } catch { throw new UnauthorizedException('Please log in'); }
     // Check the database on every request so a suspended user is locked out immediately
-    const u = await this.prisma.user.findUnique({ where: { id: req.user.sub }, select: { role: true, suspended: true } });
+    const u = await this.prisma.user.findUnique({
+      where: { id: req.user.sub },
+      select: { role: true, suspended: true, passwordHash: true },
+    });
     if (!u) throw new UnauthorizedException('Please log in again');
     if (u.suspended) throw new ForbiddenException('Your account is suspended. Please contact support.');
+
+        // A login token is tied to the current password. Changing or resetting the password logs out every other device.
+    if (req.user.ph !== u.passwordHash.slice(-12)) throw new UnauthorizedException('Please log in again');
     req.user.role = u.role;
     const roles = this.reflector.getAllAndOverride<string[]>('roles', [ctx.getHandler(), ctx.getClass()]);
     if (roles && !roles.includes(u.role)) throw new ForbiddenException('Your account type cannot do this');

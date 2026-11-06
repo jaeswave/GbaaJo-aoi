@@ -44,7 +44,15 @@ export class AuthService {
   view(u: any) {
     return { id: u.id, name: u.name, role: u.role, city: u.city, businessName: u.businessName, emailVerified: !!u.emailVerifiedAt, approvalStatus: u.approvalStatus, rejectionReason: u.rejectionReason };
   }
-  private session(u: any) { return { token: this.jwt.sign({ sub: u.id, role: u.role, name: u.name }), user: this.view(u) }; }
+  private session(u: any) { return {
+    token: this.jwt.sign({
+      sub: u.id,
+      role: u.role,
+      name: u.name,
+      ph: u.passwordHash.slice(-12),
+    }),
+    user: this.view(u),
+  }; }
 
   // Only a hash of the token is stored, so a database leak cannot be used to verify accounts.
   private async sendVerification(u: any) {

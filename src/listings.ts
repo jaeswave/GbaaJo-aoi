@@ -19,6 +19,12 @@ export class CreateListingDto {
   @IsISO8601() pickupBy: string;
 }
 
+
+export class DuplicateDto {
+  @IsOptional() @IsISO8601() saleEndsAt?: string;
+  @IsOptional() @IsISO8601() pickupBy?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(200) quantity?: number;
+}
 // The exact street address is NOT public. Buyers only get it after paying.
 const publicSelect = {
   id: true, title: true, description: true, imageUrl: true, category: true, city: true, area: true, originalPrice: true, price: true,
@@ -28,29 +34,114 @@ const publicSelect = {
 
 @Injectable()
 export class ListingsService {
-  constructor(private prisma: PrismaService, private mail: MailerService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mail: MailerService,
+  ) {}
 
   async create(sellerId: string, dto: CreateListingDto) {
-    const seller = await this.prisma.user.findUnique({ where: { id: sellerId }, select: { accountNumber: true, emailVerifiedAt: true, approvalStatus: true } });
-    if (!seller?.emailVerifiedAt) throw new ForbiddenException('Please verify your email first. Check your inbox for the link.');
-    if (seller.approvalStatus !== 'APPROVED') throw new ForbiddenException('Your seller application is still under review.');
-    if (!seller.accountNumber) throw new BadRequestException('Set up your payout account first (My shop, then Payouts) so you can get paid.');
+    const seller = await this.prisma.user.findUnique({
+      where: { id: sellerId },
+      select: {
+        accountNumber: true,
+        emailVerifiedAt: true,
+        approvalStatus: true,
+      },
+    });
+    if (!seller?.emailVerifiedAt)
+      throw new ForbiddenException(
+        "Please verify your email first. Check your inbox for the link.",
+      );
+    if (seller.approvalStatus !== "APPROVED")
+      throw new ForbiddenException(
+        "Your seller application is still under review.",
+      );
+    if (!seller.accountNumber)
+      throw new BadRequestException(
+        "Set up your payout account first (My shop, then Payouts) so you can get paid.",
+      );
     if (dto.imageUrl) {
       const cloud = process.env.CLOUDINARY_CLOUD_NAME;
-      if (!cloud || !dto.imageUrl.startsWith(`https://res.cloudinary.com/${cloud}/`)) throw new BadRequestException('That photo is not valid. Please upload it again.');
+      if (
+        !cloud ||
+        !dto.imageUrl.startsWith(`https://res.cloudinary.com/${cloud}/`)
+      )
+        throw new BadRequestException(
+          "That photo is not valid. Please upload it again.",
+        );
     }
 
-    const now = Date.now(), ends = new Date(dto.saleEndsAt).getTime(), pick = new Date(dto.pickupBy).getTime();
-    if (ends < now + RULES.MIN_SALE_MINUTES * 60000) throw new BadRequestException(`Sale must end at least ${RULES.MIN_SALE_MINUTES} minutes from now`);
-    if (ends > now + RULES.MAX_SALE_HOURS * 3600000) throw new BadRequestException(`Sale cannot run longer than ${RULES.MAX_SALE_HOURS} hours`);
-    if (pick < ends) throw new BadRequestException('Pickup deadline must be after the sale ends');
-    if (pick > ends + RULES.MAX_PICKUP_HOURS * 3600000) throw new BadRequestException(`Pickup deadline must be within ${RULES.MAX_PICKUP_HOURS} hours of the sale ending`);
-    if (dto.price > Math.floor(dto.originalPrice * (1 - RULES.MIN_DISCOUNT))) throw new BadRequestException(`Discount must be at least ${RULES.MIN_DISCOUNT * 100}% off the original price`);
-    const active = await this.prisma.listing.count({ where: { sellerId, status: 'ACTIVE' } });
-    if (active >= RULES.MAX_ACTIVE_LISTINGS) throw new BadRequestException('You have too many active listings');
+    const now = Date.now(),
+      ends = new Date(dto.saleEndsAt).getTime(),
+      pick = new Date(dto.pickupBy).getTime();
+    if (ends < now + RULES.MIN_SALE_MINUTES * 60000)
+      throw new BadRequestException(
+        `Sale must end at least ${RULES.MIN_SALE_MINUTES} minutes from now`,
+      );
+    if (ends > now + RULES.MAX_SALE_HOURS * 3600000)
+      throw new BadRequestException(
+        `Sale cannot run longer than ${RULES.MAX_SALE_HOURS} hours`,
+      );
+    if (pick < ends)
+      throw new BadRequestException(
+        "Pickup deadline must be after the sale ends",
+      );
+    if (pick > ends + RULES.MAX_PICKUP_HOURS * 3600000)
+      throw new BadRequestException(
+        `Pickup deadline must be within ${RULES.MAX_PICKUP_HOURS} hours of the sale ending`,
+      );
+    if (dto.price > Math.floor(dto.originalPrice * (1 - RULES.MIN_DISCOUNT)))
+      throw new BadRequestException(
+        `Discount must be at least ${RULES.MIN_DISCOUNT * 100}% off the original price`,
+      );
+    const active = await this.prisma.listing.count({
+      where: { sellerId, status: "ACTIVE" },
+    });
+    if (active >= RULES.MAX_ACTIVE_LISTINGS)
+      throw new BadRequestException("You have too many active listings");
     return this.prisma.listing.create({
-      data: { ...dto, imageUrl: dto.imageUrl || null, saleEndsAt: new Date(dto.saleEndsAt), pickupBy: new Date(dto.pickupBy), quantityLeft: dto.quantity, sellerId },
+      data: {
+        ...dto,
+        imageUrl: dto.imageUrl || null,
+        saleEndsAt: new Date(dto.saleEndsAt),
+        pickupBy: new Date(dto.pickupBy),
+        quantityLeft: dto.quantity,
+        sellerId,
+      },
       select: publicSelect,
+    });
+  }
+
+  // Republish an earlier listing with fresh times, so a seller does not retype everything each day.
+  // It goes through create(), so every rule (approved seller, payout account, 30% discount, limits) is checked again.
+  async duplicate(sellerId: string, id: string, dto: DuplicateDto) {
+    const l = await this.prisma.listing.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException("Listing not found");
+    if (l.sellerId !== sellerId)
+      throw new ForbiddenException("Not your listing");
+    if (!CITIES.includes(l.city))
+      throw new BadRequestException(
+        "GbaanJo is not live in that city right now",
+      );
+    const ends = dto.saleEndsAt
+      ? new Date(dto.saleEndsAt)
+      : new Date(Date.now() + 3 * 3600000);
+    const pick = dto.pickupBy
+      ? new Date(dto.pickupBy)
+      : new Date(ends.getTime() + 2 * 3600000);
+    return this.create(sellerId, {
+      title: l.title,
+      description: l.description || undefined,
+      imageUrl: l.imageUrl || undefined,
+      category: l.category,
+      city: l.city,
+      area: l.area,
+      address: l.address,
+      originalPrice: l.originalPrice,
+      price: l.price,
+      quantity: dto.quantity ?? l.quantity,
+      saleEndsAt: ends.toISOString(),
+      pickupBy: pick.toISOString(),
     });
   }
 
@@ -59,50 +150,131 @@ export class ListingsService {
   list(q: { city?: string; category?: string; q?: string }) {
     return this.prisma.listing.findMany({
       where: {
-        status: 'ACTIVE', quantityLeft: { gt: 0 }, saleEndsAt: { gt: new Date() },
+        status: "ACTIVE",
+        quantityLeft: { gt: 0 },
+        saleEndsAt: { gt: new Date() },
         city: { in: CITIES }, // only cities we are live in
-        seller: { approvalStatus: 'APPROVED', suspended: false },
+        seller: { approvalStatus: "APPROVED", suspended: false },
         ...(CITIES.includes(q.city) ? { city: q.city } : {}),
         ...(CATEGORIES.includes(q.category) ? { category: q.category } : {}),
-        ...(q.q ? { title: { contains: String(q.q).slice(0, 50), mode: 'insensitive' as const } } : {}),
+        ...(q.q
+          ? {
+              title: {
+                contains: String(q.q).slice(0, 50),
+                mode: "insensitive" as const,
+              },
+            }
+          : {}),
       },
-      orderBy: { saleEndsAt: 'asc' }, take: 60, select: publicSelect,
+      orderBy: { saleEndsAt: "asc" },
+      take: 60,
+      select: publicSelect,
     });
   }
 
   async one(id: string) {
-    const l = await this.prisma.listing.findUnique({ where: { id }, select: publicSelect });
-    if (!l) throw new NotFoundException('Listing not found');
+    const l = await this.prisma.listing.findUnique({
+      where: { id },
+      select: publicSelect,
+    });
+    if (!l) throw new NotFoundException("Listing not found");
     return l;
   }
 
   mine(sellerId: string) {
-    return this.prisma.listing.findMany({ where: { sellerId }, orderBy: { createdAt: 'desc' }, take: 100, select: { ...publicSelect, address: true } });
+    return this.prisma.listing.findMany({
+      where: { sellerId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: { ...publicSelect, address: true },
+    });
   }
 
   async cancel(sellerId: string, id: string) {
-    const { listing, affected, seller } = await this.prisma.$transaction(async (tx) => {
-      const l = await tx.listing.findUnique({ where: { id }, include: { seller: { select: { email: true, businessName: true, name: true } } } });
-      if (!l) throw new NotFoundException('Listing not found');
-      if (l.sellerId !== sellerId) throw new ForbiddenException('Not your listing');
-      const affected = await cancelOrders(tx, { listingId: id });
-      const listing = await tx.listing.update({ where: { id }, data: { status: 'CANCELLED' }, select: publicSelect });
-      return { listing, affected, seller: l.seller };
-    });
+    const { listing, affected, seller } = await this.prisma.$transaction(
+      async (tx) => {
+        const l = await tx.listing.findUnique({
+          where: { id },
+          include: {
+            seller: { select: { email: true, businessName: true, name: true } },
+          },
+        });
+        if (!l) throw new NotFoundException("Listing not found");
+        if (l.sellerId !== sellerId)
+          throw new ForbiddenException("Not your listing");
+        const affected = await cancelOrders(tx, { listingId: id });
+        const listing = await tx.listing.update({
+          where: { id },
+          data: { status: "CANCELLED" },
+          select: publicSelect,
+        });
+        return { listing, affected, seller: l.seller };
+      },
+    );
     // Tell every buyer who had an order, so nobody turns up for food that is no longer there
-    for (const o of affected) void this.mail.orderCancelledBuyer({ orderNo: o.orderNo, title: o.title, buyerName: o.buyerName, buyerEmail: o.buyerEmail, amountPaid: o.amountPaid }, o.refund, 'The seller cancelled this listing.');
-    if (affected.some((o) => o.refund)) void this.mail.adminAlert('Refunds to process', `${affected.filter((o) => o.refund).length} paid order(s) need a refund because ${seller.businessName || seller.name} cancelled a listing.`);
+    for (const o of affected)
+      void this.mail.orderCancelledBuyer(
+        {
+          orderNo: o.orderNo,
+          title: o.title,
+          buyerName: o.buyerName,
+          buyerEmail: o.buyerEmail,
+          amountPaid: o.amountPaid,
+        },
+        o.refund,
+        "The seller cancelled this listing.",
+      );
+    if (affected.some((o) => o.refund))
+      void this.mail.adminAlert(
+        "Refunds to process",
+        `${affected.filter((o) => o.refund).length} paid order(s) need a refund because ${seller.businessName || seller.name} cancelled a listing.`,
+      );
     return listing;
   }
 }
 
-@Controller('listings')
+@Controller("listings")
 export class ListingsController {
   constructor(private svc: ListingsService) {}
-  @Get('meta') meta() { return { categories: CATEGORIES, cities: CITIES, comingSoon: COMING_SOON, rules: RULES, paymentProvider: 'opay', currency: 'NGN', locale: 'en-NG' }; }
-  @Get() list(@Query() q: any) { return this.svc.list(q); }
-  @UseGuards(AuthGuard) @Roles('SELLER') @Get('mine/all') mine(@CurrentUser() u: any) { return this.svc.mine(u.sub); }
-  @Get(':id') one(@Param('id') id: string) { return this.svc.one(id); }
-  @UseGuards(AuthGuard) @Roles('SELLER') @Post() create(@CurrentUser() u: any, @Body() dto: CreateListingDto) { return this.svc.create(u.sub, dto); }
-  @UseGuards(AuthGuard) @Roles('SELLER') @Patch(':id/cancel') cancel(@CurrentUser() u: any, @Param('id') id: string) { return this.svc.cancel(u.sub, id); }
+  @Get("meta") meta() {
+    return {
+      categories: CATEGORIES,
+      cities: CITIES,
+      comingSoon: COMING_SOON,
+      rules: RULES,
+      paymentProvider: "opay",
+      currency: "NGN",
+      locale: "en-NG",
+    };
+  }
+  @Get() list(@Query() q: any) {
+    return this.svc.list(q);
+  }
+  @UseGuards(AuthGuard) @Roles("SELLER") @Get("mine/all") mine(
+    @CurrentUser() u: any,
+  ) {
+    return this.svc.mine(u.sub);
+  }
+  @Get(":id") one(@Param("id") id: string) {
+    return this.svc.one(id);
+  }
+  @UseGuards(AuthGuard) @Roles("SELLER") @Post() create(
+    @CurrentUser() u: any,
+    @Body() dto: CreateListingDto,
+  ) {
+    return this.svc.create(u.sub, dto);
+  }
+  @UseGuards(AuthGuard) @Roles("SELLER") @Post(":id/duplicate") duplicate(
+    @CurrentUser() u: any,
+    @Param("id") id: string,
+    @Body() dto: DuplicateDto,
+  ) {
+    return this.svc.duplicate(u.sub, id, dto);
+  }
+  @UseGuards(AuthGuard) @Roles("SELLER") @Patch(":id/cancel") cancel(
+    @CurrentUser() u: any,
+    @Param("id") id: string,
+  ) {
+    return this.svc.cancel(u.sub, id);
+  }
 }
